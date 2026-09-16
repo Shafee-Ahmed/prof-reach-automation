@@ -1,0 +1,13 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: outreach_agent
+    env_file:
+      - .env
+    volumes:
+      - ./app:/app/app
+      - ./tests:/app/tests
+    stdin_open: true
+    tty: true
