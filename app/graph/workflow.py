@@ -6,6 +6,7 @@ from langgraph.graph import END, START, StateGraph
 
 from app.agents.email_writer import generate_email_draft
 from app.agents.paper_evaluator import evaluate_candidate
+from app.agents.quality_checker import verify_candidate_quality
 from app.graph.state import AgentState, candidate_from_state
 from app.tools.discovery import discover_professors
 from app.tools.scraper import FacultyInfo, find_faculty_info
@@ -94,15 +95,20 @@ def _result_from_state(state: AgentState, result_status: str) -> dict[str, Any]:
             if result_status == "pending"
             else None
         ),
+        "quality_checks": state.get("quality_checks", {}),
         "status": result_status,
     }
 
 
 async def queue_candidate_node(state: AgentState) -> dict[str, Any]:
     """Keep a qualified candidate in the manual approval queue."""
+    candidate = _result_from_state(state, "pending")
+    verification = verify_candidate_quality(candidate)
+    candidate["quality_checks"] = verification.model_dump()
     return {
         "status": "pending",
-        "results": [*state.get("results", []), _result_from_state(state, "pending")],
+        "quality_checks": verification.model_dump(),
+        "results": [*state.get("results", []), candidate],
     }
 
 

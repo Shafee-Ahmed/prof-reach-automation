@@ -39,7 +39,12 @@ async def test_graph_queues_high_relevance_and_skips_low_relevance() -> None:
         [
             CandidateEvaluation(
                 candidate_name="Ada Lovelace",
-                top_papers=[PaperSummary(title="Medical Vision")],
+                top_papers=[
+                    PaperSummary(
+                        title="Medical Vision",
+                        url="https://university.edu/paper",
+                    )
+                ],
                 relevance_score=8.0,
                 summary="Strong match",
                 rationale="Aligned",
@@ -55,7 +60,7 @@ async def test_graph_queues_high_relevance_and_skips_low_relevance() -> None:
     )
     email_draft = EmailDraft(
         subject="Research discussion",
-        body="I would value discussing your research.",
+        body="I would value discussing Medical Vision [1].",
         citations=[
             CitationTag(
                 claim="Your research is relevant.",
@@ -82,11 +87,18 @@ async def test_graph_queues_high_relevance_and_skips_low_relevance() -> None:
     assert result["results"][1]["email"] == "grace@university.edu"
     assert result["results"][0]["email_draft"] == email_draft.model_dump()
     assert result["results"][1]["email_draft"] is None
+    assert "quality_checks" in result["results"][0]
+    assert result["results"][0]["quality_checks"]["is_valid"] is True
     generate_email.assert_awaited_once_with(
         candidate_name="Ada Lovelace",
         institution="Analytical University",
         student_interests="computer vision",
-        top_papers=[PaperSummary(title="Medical Vision")],
+        top_papers=[
+            PaperSummary(
+                title="Medical Vision",
+                url="https://university.edu/paper",
+            )
+        ],
     )
 
 
