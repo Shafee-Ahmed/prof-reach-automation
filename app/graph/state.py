@@ -14,7 +14,7 @@ class AgentState(TypedDict, total=False):
     current_index: int
     papers: list[dict[str, Any]]
     relevance_score: float
-    email_draft: str
+    email_draft: dict[str, Any] | None
     citations: list[dict[str, Any]]
     quality_checks: dict[str, Any]
     status: str

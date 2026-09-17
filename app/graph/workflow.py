@@ -4,6 +4,7 @@ from typing import Any, Literal
 
 from langgraph.graph import END, START, StateGraph
 
+from app.agents.email_writer import generate_email_draft
 from app.agents.paper_evaluator import evaluate_candidate
 from app.graph.state import AgentState, candidate_from_state
 from app.tools.discovery import discover_professors
@@ -59,15 +60,26 @@ async def evaluate_node(state: AgentState) -> dict[str, Any]:
     candidate = candidate_from_state(state["current_professor"])
     evaluation = await evaluate_candidate(candidate, state["topic"])
     papers = [paper.model_dump() for paper in evaluation.top_papers]
+    email_draft: dict[str, Any] | None = None
+    if evaluation.relevance_score >= RELEVANCE_THRESHOLD:
+        draft = await generate_email_draft(
+            candidate_name=candidate.name,
+            institution=candidate.institution,
+            student_interests=state["topic"],
+            top_papers=evaluation.top_papers,
+        )
+        email_draft = draft.model_dump()
     return {
         "papers": papers,
         "relevance_score": evaluation.relevance_score,
+        "email_draft": email_draft,
         "current_professor": {
             **state["current_professor"],
             "summary": evaluation.summary,
             "rationale": evaluation.rationale,
             "papers": papers,
             "relevance_score": evaluation.relevance_score,
+            "email_draft": email_draft,
         },
     }
 
@@ -77,6 +89,11 @@ def _result_from_state(state: AgentState, result_status: str) -> dict[str, Any]:
         **state["current_professor"],
         "papers": state.get("papers", []),
         "relevance_score": state.get("relevance_score", 0.0),
+        "email_draft": (
+            state.get("email_draft")
+            if result_status == "pending"
+            else None
+        ),
         "status": result_status,
     }
 
@@ -113,6 +130,7 @@ async def advance_node(state: AgentState) -> dict[str, Any]:
         "current_professor": {},
         "papers": [],
         "relevance_score": 0.0,
+        "email_draft": None,
     }
 
 

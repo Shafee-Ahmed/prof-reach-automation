@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from app.graph import compile_graph
+from app.agents.email_writer import CitationTag, EmailDraft
 from app.agents.paper_evaluator import CandidateEvaluation
 from app.tools.paper_fetcher import PaperSummary
 from app.tools.discovery import ProfessorCandidate
@@ -52,11 +53,26 @@ async def test_graph_queues_high_relevance_and_skips_low_relevance() -> None:
             ),
         ]
     )
+    email_draft = EmailDraft(
+        subject="Research discussion",
+        body="I would value discussing your research.",
+        citations=[
+            CitationTag(
+                claim="Your research is relevant.",
+                source_title="Medical Vision",
+                source_url="https://university.edu/paper",
+            )
+        ],
+    )
 
     with (
         patch("app.graph.workflow.discover_professors", AsyncMock(return_value=candidates)),
         patch("app.graph.workflow.find_faculty_info", side_effect=faculty_lookup),
         patch("app.graph.workflow.evaluate_candidate", side_effect=evaluations),
+        patch(
+            "app.graph.workflow.generate_email_draft",
+            AsyncMock(return_value=email_draft),
+        ) as generate_email,
     ):
         result = await compile_graph().ainvoke({"topic": "computer vision"})
 
@@ -64,6 +80,14 @@ async def test_graph_queues_high_relevance_and_skips_low_relevance() -> None:
     assert [item["status"] for item in result["results"]] == ["pending", "skipped"]
     assert result["results"][0]["email"] == "ada@university.edu"
     assert result["results"][1]["email"] == "grace@university.edu"
+    assert result["results"][0]["email_draft"] == email_draft.model_dump()
+    assert result["results"][1]["email_draft"] is None
+    generate_email.assert_awaited_once_with(
+        candidate_name="Ada Lovelace",
+        institution="Analytical University",
+        student_interests="computer vision",
+        top_papers=[PaperSummary(title="Medical Vision")],
+    )
 
 
 @pytest.mark.asyncio
