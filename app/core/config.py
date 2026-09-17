@@ -1,6 +1,7 @@
 """Environment-backed application configuration."""
 
 import os
+from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -13,6 +14,10 @@ RESEND_API_KEY = os.getenv("RESEND_API_KEY", "").strip()
 RESEND_FROM_EMAIL = os.getenv("RESEND_FROM_EMAIL", "").strip()
 EMAIL_SEND_MODE = os.getenv("EMAIL_SEND_MODE", "test").strip().lower()
 RESEND_API_URL = "https://api.resend.com/emails"
+DATABASE_PATH = os.getenv(
+    "DATABASE_PATH",
+    str(Path(__file__).resolve().parents[2] / "data" / "outreach.db"),
+).strip()
 PROFESSOR_OUTREACH_CONTACT_EMAIL = os.getenv(
     "PROFESSOR_OUTREACH_CONTACT_EMAIL",
     "contact@example.com",
