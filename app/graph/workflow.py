@@ -25,7 +25,11 @@ async def discover_node(state: AgentState) -> dict[str, Any]:
     if not topic:
         raise ValueError("A research topic is required")
 
-    candidates = await discover_professors(topic)
+    candidates = await discover_professors(
+        topic,
+        include_countries=state.get("include_countries", []),
+        exclude_countries=state.get("exclude_countries", []),
+    )
     professors = [candidate.model_dump() for candidate in candidates]
     return {
         "professors": professors,
@@ -202,6 +206,16 @@ def compile_graph() -> Any:
     return build_graph().compile()
 
 
-async def run_agent(topic: str) -> AgentState:
+async def run_agent(
+    topic: str,
+    include_countries: list[str] | None = None,
+    exclude_countries: list[str] | None = None,
+) -> AgentState:
     """Run the complete discovery, enrichment, and evaluation workflow."""
-    return await compile_graph().ainvoke({"topic": topic})
+    return await compile_graph().ainvoke(
+        {
+            "topic": topic,
+            "include_countries": include_countries or [],
+            "exclude_countries": exclude_countries or [],
+        }
+    )

@@ -9,6 +9,8 @@ class AgentState(TypedDict, total=False):
     """State passed between outreach workflow nodes."""
 
     topic: str
+    include_countries: list[str]
+    exclude_countries: list[str]
     professors: list[dict[str, Any]]
     current_professor: dict[str, Any]
     current_index: int

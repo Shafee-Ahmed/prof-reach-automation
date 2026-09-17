@@ -28,6 +28,7 @@ class ProfessorCandidate(BaseModel):
     recent_paper: str
     source: str
     author_id: str | None = None
+    country: str | None = None
 
 
 def _semantic_scholar_candidates(raw_paper_json: dict) -> list[ProfessorCandidate]:
@@ -49,12 +50,15 @@ def _semantic_scholar_candidates(raw_paper_json: dict) -> list[ProfessorCandidat
 
 
 async def fetch_openalex_authors(
-    topic: str, max_results: int = 10
+    topic: str, max_results: int = 30
 ) -> list[ProfessorCandidate]:
     params = {
         "search": topic,
-        "per_page": max_results,
-        "sort": "cited_by_count:desc",  #  i will need to sort it based on recent years , todo : just keep update the prf who has worked on the topic in last 2 to 4 yrs
+        # Search a broad recent sample, then diversify by institution/country
+        # below instead of returning authors from only the first few works.
+        "per_page": min(max_results * 4, 100),
+        "sort": "publication_date:desc",
+        "filter": "from_publication_date:2021-01-01",
     }
 
     # Step 1: Execute non-blocking HTTP request
@@ -90,6 +94,11 @@ async def fetch_openalex_authors(
                 first_inst = institutions[0]
                 if isinstance(first_inst, dict):
                     institution = str(first_inst.get("display_name") or "Unknown")
+                    country = first_inst.get("country_code")
+                else:
+                    country = None
+            else:
+                country = None
 
             # 3. Pull author_id from the author variable above
             author_id = author.get("id")
@@ -101,14 +110,15 @@ async def fetch_openalex_authors(
                 recent_paper=title,
                 source="OpenAlex",
                 author_id=str(author_id) if author_id else None,
+                country=str(country).upper() if country else None,
             )
             candidates.append(candidate)
 
-    return candidates[:max_results]
+    return _diversify_candidates(candidates, max_results)
 
 
 async def fetch_semantic_scholar_authors(
-    topic: str, max_results: int = 10
+    topic: str, max_results: int = 30
 ) -> list[ProfessorCandidate]:
     params = {
         "query": topic,
@@ -132,27 +142,81 @@ async def fetch_semantic_scholar_authors(
             if isinstance (paper , dict):
                 candidates.extend(_semantic_scholar_candidates(paper))
     
-    return candidates[:max_results]
+    return _diversify_candidates(candidates, max_results)
+
+
+def _diversify_candidates(
+    candidates: list[ProfessorCandidate],
+    max_results: int,
+    max_per_institution: int = 2,
+) -> list[ProfessorCandidate]:
+    """Prefer several universities and countries over one prolific institution."""
+    selected: list[ProfessorCandidate] = []
+    seen_authors: set[str] = set()
+    institution_counts: dict[str, int] = {}
+
+    # First pass maximizes geographic and university coverage.
+    for candidate in candidates:
+        author_key = (candidate.author_id or candidate.name).casefold()
+        institution_key = candidate.institution.casefold()
+        if author_key in seen_authors:
+            continue
+        if institution_counts.get(institution_key, 0) >= max_per_institution:
+            continue
+        seen_authors.add(author_key)
+        institution_counts[institution_key] = (
+            institution_counts.get(institution_key, 0) + 1
+        )
+        selected.append(candidate)
+        if len(selected) >= max_results:
+            return selected
+
+    # Keep the result useful when a provider returns incomplete institution data.
+    for candidate in candidates:
+        author_key = (candidate.author_id or candidate.name).casefold()
+        if author_key not in seen_authors:
+            seen_authors.add(author_key)
+            selected.append(candidate)
+            if len(selected) >= max_results:
+                break
+    return selected
 
 
 
-async def discover_professors(topic: str) -> list[ProfessorCandidate]:
-    """Fetch, merge, and deduplicate candidates from both providers."""
+async def discover_professors(
+    topic: str,
+    max_results: int = 30,
+    include_countries: list[str] | None = None,
+    exclude_countries: list[str] | None = None,
+) -> list[ProfessorCandidate]:
+    """Find topic experts across many universities and countries."""
+    if not topic.strip():
+        raise ValueError("A research topic is required")
+    included = {country.strip().upper() for country in include_countries or []}
+    excluded = {country.strip().upper() for country in exclude_countries or []}
     results = await asyncio.gather(
-        fetch_openalex_authors(topic),
-        fetch_semantic_scholar_authors(topic),
+        fetch_openalex_authors(topic, max_results),
+        fetch_semantic_scholar_authors(topic, max_results),
         return_exceptions=True,
     )
 
     candidates: list[ProfessorCandidate] = []
-    seen_names: set[str] = set()
+    seen_authors: set[str] = set()
     for result in results:
         if isinstance(result, Exception):
             logger.warning("Professor provider failed: %s", result)
             continue
         for candidate in result:
-            normalized_name = candidate.name.casefold()
-            if normalized_name not in seen_names:
-                seen_names.add(normalized_name)
+            normalized_author = (
+                candidate.author_id or f"{candidate.name}|{candidate.institution}"
+            ).casefold()
+            if normalized_author not in seen_authors:
+                seen_authors.add(normalized_author)
                 candidates.append(candidate)
-    return candidates
+    candidates = [
+        candidate
+        for candidate in candidates
+        if (not included or candidate.country in included)
+        and candidate.country not in excluded
+    ]
+    return _diversify_candidates(candidates, max_results)

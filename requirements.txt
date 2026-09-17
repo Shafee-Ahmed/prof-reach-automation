@@ -8,3 +8,4 @@ beautifulsoup4
 fastapi
 uvicorn
 langgraph>=0.2.0
+gradio>=4.0.0
