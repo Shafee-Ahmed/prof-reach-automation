@@ -7,6 +7,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from app.db.database import save_candidate, update_candidate_status
 
 class ApprovalStatus(StrEnum):
     """Available reviewer decisions."""
@@ -38,6 +39,21 @@ class ApprovedCandidate(BaseModel):
 
 
 _QUEUE: dict[str, ApprovedCandidate] = {}
+
+
+def _candidate_record_data(candidate: ApprovedCandidate) -> dict[str, Any]:
+    """Build the database candidate shape from the review representation."""
+    return {
+        **deepcopy(candidate.candidate_metadata),
+        "candidate_id": candidate.candidate_id,
+        "status": candidate.status.value,
+        "email_draft": {
+            "subject": candidate.final_subject,
+            "body": candidate.final_body,
+            "citations": [citation.model_dump() for citation in candidate.citations],
+        },
+        "reviewer_notes": candidate.reviewer_notes,
+    }
 
 
 def _candidate_id(candidate: dict[str, Any]) -> str:
@@ -124,6 +140,13 @@ def approve_candidate(
         if edited_subject is not None or edited_body is not None
         else ApprovalStatus.APPROVED
     )
+    save_candidate(_candidate_record_data(candidate))
+    update_candidate_status(
+        candidate.candidate_id,
+        candidate.status.value,
+        subject=candidate.final_subject if edited_subject is not None else None,
+        body=candidate.final_body if edited_body is not None else None,
+    )
     return candidate
 
 
@@ -135,4 +158,10 @@ def reject_candidate(
     candidate = _require_pending(candidate_id)
     candidate.status = ApprovalStatus.REJECTED
     candidate.reviewer_notes = reason
+    save_candidate(_candidate_record_data(candidate))
+    update_candidate_status(
+        candidate.candidate_id,
+        candidate.status.value,
+        reviewer_notes=reason,
+    )
     return candidate

@@ -3,6 +3,7 @@
 import json
 import sqlite3
 from datetime import datetime, timezone
+from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
@@ -79,9 +80,18 @@ def initialize_database(path: str | Path | None = None) -> None:
 
 
 def _record_from_candidate(candidate: dict[str, Any]) -> OutreachRecord:
+    identity = (
+        str(candidate.get("author_id") or "")
+        or str(candidate.get("email") or "")
+        or str(candidate.get("name") or candidate.get("professor_name") or "")
+    )
+    candidate_id = str(
+        candidate.get("candidate_id")
+        or sha256(identity.casefold().encode("utf-8")).hexdigest()[:16]
+    )
     draft = candidate.get("email_draft") or {}
     return OutreachRecord(
-        candidate_id=str(candidate["candidate_id"]),
+        candidate_id=candidate_id,
         name=str(candidate.get("name") or candidate.get("professor_name") or ""),
         institution=str(candidate.get("institution") or ""),
         email=candidate.get("email"),
@@ -168,11 +178,10 @@ def save_graph_results(
     results: list[dict[str, Any]],
     path: str | Path | None = None,
 ) -> list[OutreachRecord]:
-    """Persist all graph candidates that have stable candidate IDs."""
+    """Persist every graph candidate, deriving an ID when necessary."""
     records: list[OutreachRecord] = []
     for result in results:
-        if result.get("candidate_id"):
-            records.append(save_candidate(result, path))
+        records.append(save_candidate(result, path))
     return records
 
 
@@ -220,6 +229,8 @@ def update_candidate_status(
     candidate_id: str,
     status: str,
     reviewer_notes: str | None = None,
+    subject: str | None = None,
+    body: str | None = None,
     path: str | Path | None = None,
 ) -> OutreachRecord:
     """Update review status and optional reviewer notes."""
@@ -228,10 +239,14 @@ def update_candidate_status(
         result = connection.execute(
             """
             UPDATE outreach
-            SET status = ?, reviewer_notes = ?, updated_at = ?
+            SET status = ?,
+                reviewer_notes = ?,
+                subject = COALESCE(?, subject),
+                body = COALESCE(?, body),
+                updated_at = ?
             WHERE candidate_id = ?
             """,
-            (status, reviewer_notes, _now(), candidate_id),
+            (status, reviewer_notes, subject, body, _now(), candidate_id),
         )
         if result.rowcount != 1:
             raise KeyError(f"Unknown candidate: {candidate_id}")

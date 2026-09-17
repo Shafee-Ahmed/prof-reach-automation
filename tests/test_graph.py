@@ -8,6 +8,7 @@ from app.agents.paper_evaluator import CandidateEvaluation
 from app.tools.paper_fetcher import PaperSummary
 from app.tools.discovery import ProfessorCandidate
 from app.tools.scraper import FacultyInfo
+from app.db.database import list_candidates
 
 
 def _candidate(name: str) -> ProfessorCandidate:
@@ -20,7 +21,11 @@ def _candidate(name: str) -> ProfessorCandidate:
 
 
 @pytest.mark.asyncio
-async def test_graph_queues_high_relevance_and_skips_low_relevance() -> None:
+async def test_graph_queues_high_relevance_and_skips_low_relevance(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setattr("app.db.database.DATABASE_PATH", tmp_path / "graph.db")
     candidates = [_candidate("Ada Lovelace"), _candidate("Grace Hopper")]
     faculty = FacultyInfo(
         professor_name="Ada Lovelace",
@@ -89,6 +94,8 @@ async def test_graph_queues_high_relevance_and_skips_low_relevance() -> None:
     assert result["results"][1]["email_draft"] is None
     assert "quality_checks" in result["results"][0]
     assert result["results"][0]["quality_checks"]["is_valid"] is True
+    persisted = list_candidates()
+    assert {record.name for record in persisted} == {"Ada Lovelace", "Grace Hopper"}
     generate_email.assert_awaited_once_with(
         candidate_name="Ada Lovelace",
         institution="Analytical University",
@@ -103,7 +110,11 @@ async def test_graph_queues_high_relevance_and_skips_low_relevance() -> None:
 
 
 @pytest.mark.asyncio
-async def test_graph_skips_when_discovery_returns_no_candidates() -> None:
+async def test_graph_skips_when_discovery_returns_no_candidates(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setattr("app.db.database.DATABASE_PATH", tmp_path / "empty.db")
     with patch("app.graph.workflow.discover_professors", AsyncMock(return_value=[])):
         result = await compile_graph().ainvoke({"topic": "unknown topic"})
 

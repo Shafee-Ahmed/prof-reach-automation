@@ -4,6 +4,7 @@ import httpx
 import pytest
 
 from app.core.approval_queue import ApprovedCandidate, ApprovalStatus, CitationTag
+from app.db.database import list_candidates
 from app.tools.email_sender import DeliveryStatus, send_approved_email
 
 
@@ -25,16 +26,25 @@ def _candidate(status: ApprovalStatus = ApprovalStatus.APPROVED) -> ApprovedCand
 
 
 @pytest.mark.asyncio
-async def test_test_mode_simulates_approved_email() -> None:
+async def test_test_mode_simulates_approved_email(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setattr("app.db.database.DATABASE_PATH", tmp_path / "simulated.db")
     with patch("app.tools.email_sender.EMAIL_SEND_MODE", "test"):
         result = await send_approved_email(_candidate())
 
     assert result.status is DeliveryStatus.SIMULATED
     assert result.recipient == "professor@university.edu"
+    assert list_candidates()[0].status == "simulated"
 
 
 @pytest.mark.asyncio
-async def test_live_mode_sends_through_resend() -> None:
+async def test_live_mode_sends_through_resend(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setattr("app.db.database.DATABASE_PATH", tmp_path / "live.db")
     response = httpx.Response(
         200,
         json={"id": "resend-message-1"},
@@ -56,6 +66,7 @@ async def test_live_mode_sends_through_resend() -> None:
     assert result.status is DeliveryStatus.SENT
     assert result.provider_id == "resend-message-1"
     assert client.post.await_args.kwargs["json"]["to"] == ["professor@university.edu"]
+    assert list_candidates()[0].provider_id == "resend-message-1"
 
 
 @pytest.mark.asyncio

@@ -7,6 +7,7 @@ from langgraph.graph import END, START, StateGraph
 from app.agents.email_writer import generate_email_draft
 from app.agents.paper_evaluator import evaluate_candidate
 from app.agents.quality_checker import verify_candidate_quality
+from app.db.database import save_graph_results
 from app.graph.state import AgentState, candidate_from_state
 from app.tools.discovery import discover_professors
 from app.tools.scraper import FacultyInfo, find_faculty_info
@@ -155,6 +156,7 @@ async def finish_node(state: AgentState) -> dict[str, Any]:
     final_status = "pending" if any(
         result.get("status") == "pending" for result in results
     ) else "skipped"
+    save_graph_results(results)
     return {"status": final_status}
 
 

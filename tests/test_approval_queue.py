@@ -1,5 +1,6 @@
 import pytest
 
+from app.db.database import list_candidates
 from app.core.approval_queue import (
     ApprovalStatus,
     approve_candidate,
@@ -45,7 +46,11 @@ def test_loading_pending_candidates_from_graph_output() -> None:
     assert pending[0]["candidate_id"]
 
 
-def test_manual_edits_preserve_citation_tags() -> None:
+def test_manual_edits_preserve_citation_tags(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setattr("app.db.database.DATABASE_PATH", tmp_path / "approval.db")
     pending = get_pending_candidates(_results())
 
     approved = approve_candidate(
@@ -58,9 +63,17 @@ def test_manual_edits_preserve_citation_tags() -> None:
     assert approved.final_subject == "Updated subject"
     assert approved.final_body == "Updated body [1]."
     assert approved.citations[0].source_title == "Computing Engines"
+    record = list_candidates()[0]
+    assert record.status == "edited"
+    assert record.subject == "Updated subject"
+    assert record.body == "Updated body [1]."
 
 
-def test_approval_and_rejection_state_transitions() -> None:
+def test_approval_and_rejection_state_transitions(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setattr("app.db.database.DATABASE_PATH", tmp_path / "transitions.db")
     pending = get_pending_candidates(_results())
     approved = approve_candidate(pending[0]["candidate_id"])
     assert approved.status is ApprovalStatus.APPROVED
@@ -69,6 +82,8 @@ def test_approval_and_rejection_state_transitions() -> None:
     rejected = reject_candidate(pending[0]["candidate_id"], "Not a current fit")
     assert rejected.status is ApprovalStatus.REJECTED
     assert rejected.reviewer_notes == "Not a current fit"
+    assert list_candidates()[0].status == "rejected"
+    assert list_candidates()[0].reviewer_notes == "Not a current fit"
 
 
 def test_unknown_candidate_is_rejected() -> None:

@@ -15,6 +15,7 @@ from app.core.config import (
     RESEND_API_URL,
     RESEND_FROM_EMAIL,
 )
+from app.db.database import record_delivery, save_candidate
 
 logger = logging.getLogger(__name__)
 
@@ -57,17 +58,32 @@ async def send_approved_email(
         raise ValueError("Only approved or edited candidates can be sent")
 
     recipient = _recipient(candidate)
+    save_candidate(
+        {
+            **candidate.candidate_metadata,
+            "candidate_id": candidate.candidate_id,
+            "status": candidate.status.value,
+            "email": recipient,
+            "email_draft": {
+                "subject": candidate.final_subject,
+                "body": candidate.final_body,
+                "citations": [citation.model_dump() for citation in candidate.citations],
+            },
+        }
+    )
     if EMAIL_SEND_MODE != "live":
         logger.info(
             "Email delivery simulated for candidate %s to %s",
             candidate.candidate_id,
             recipient,
         )
-        return SentEmailResult(
+        result = SentEmailResult(
             candidate_id=candidate.candidate_id,
             recipient=recipient,
             status=DeliveryStatus.SIMULATED,
         )
+        record_delivery(candidate.candidate_id, result.status.value)
+        return result
 
     if not RESEND_API_KEY or not RESEND_FROM_EMAIL:
         raise RuntimeError(
@@ -96,9 +112,15 @@ async def send_approved_email(
     provider_id = response_data.get("id")
     if not isinstance(provider_id, str) or not provider_id:
         raise ValueError("Resend response did not include an email id")
-    return SentEmailResult(
+    result = SentEmailResult(
         candidate_id=candidate.candidate_id,
         recipient=recipient,
         status=DeliveryStatus.SENT,
         provider_id=provider_id,
     )
+    record_delivery(
+        candidate.candidate_id,
+        result.status.value,
+        provider_id=result.provider_id,
+    )
+    return result
