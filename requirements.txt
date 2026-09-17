@@ -7,3 +7,4 @@ tavily-python
 beautifulsoup4
 fastapi
 uvicorn
+langgraph>=0.2.0

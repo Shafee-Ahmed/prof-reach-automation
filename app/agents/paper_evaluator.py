@@ -7,7 +7,7 @@ from typing import Any
 import httpx
 from pydantic import BaseModel, ValidationError
 
-from app.core.config import OPENAI_API_KEY, OPENAI_API_URL, OPENAI_MODEL
+from app.core.config import GEMINI_API_KEY, GEMINI_API_URL, GEMINI_MODEL
 from app.tools.discovery import ProfessorCandidate
 from app.tools.paper_fetcher import PaperSummary, fetch_top_papers
 
@@ -59,25 +59,34 @@ async def _request_evaluation(
     interests: str,
     papers: list[PaperSummary],
 ) -> dict[str, Any]:
-    if not OPENAI_API_KEY or not OPENAI_MODEL:
-        raise RuntimeError("OPENAI_API_KEY or OPENAI_MODEL is not configured")
+    if not GEMINI_API_KEY or not GEMINI_MODEL:
+        raise RuntimeError("GEMINI_API_KEY or GEMINI_MODEL is not configured")
     payload = {
-        "model": OPENAI_MODEL,
-        "max_tokens": 700,
-        "temperature": 0,
-        "messages": [{"role": "user", "content": _prompt(candidate, interests, papers)}],
-        "response_format": {"type": "json_object"},
+        "contents": [
+            {
+                "parts": [
+                    {"text": _prompt(candidate, interests, papers)},
+                ],
+            },
+        ],
+        "generationConfig": {
+            "temperature": 0,
+            "maxOutputTokens": 700,
+            "responseMimeType": "application/json",
+        },
     }
-    headers = {
-        "Authorization": f"Bearer {OPENAI_API_KEY}",
-        "content-type": "application/json",
-    }
+    url = f"{GEMINI_API_URL}/{GEMINI_MODEL}:generateContent"
     async with httpx.AsyncClient(timeout=60.0) as client:
-        response = await client.post(OPENAI_API_URL, headers=headers, json=payload)
+        response = await client.post(
+            url,
+            params={"key": GEMINI_API_KEY},
+            headers={"content-type": "application/json"},
+            json=payload,
+        )
         response.raise_for_status()
-        content = response.json()["choices"][0]["message"]["content"]
+        content = response.json()["candidates"][0]["content"]["parts"][0]["text"]
         if not isinstance(content, str):
-            raise TypeError("OpenAI returned a non-text message")
+            raise TypeError("Gemini returned a non-text message")
     return json.loads(content)
 
 
@@ -86,7 +95,13 @@ async def evaluate_candidate(
     student_interests: str,
 ) -> CandidateEvaluation:
     """Fetch papers and evaluate their relevance, with a safe fallback."""
-    papers = await fetch_top_papers(candidate.name, candidate.institution, limit=3)
+    papers = await fetch_top_papers(
+        candidate.name,
+        candidate.institution,
+        limit=3,
+        author_id=candidate.author_id,
+        topic=student_interests,
+    )
     try:
         result = await _request_evaluation(candidate, student_interests, papers)
         score = max(0.0, min(10.0, float(result["relevance_score"])))

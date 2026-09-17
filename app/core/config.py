@@ -6,9 +6,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "").strip()
-OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip()
+GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 PROFESSOR_OUTREACH_CONTACT_EMAIL = os.getenv(
     "PROFESSOR_OUTREACH_CONTACT_EMAIL",
     "contact@example.com",

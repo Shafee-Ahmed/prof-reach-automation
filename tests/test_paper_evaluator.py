@@ -9,7 +9,7 @@ from app.tools.paper_fetcher import PaperSummary
 
 
 @pytest.mark.asyncio
-async def test_request_evaluation_uses_openai_chat_completions() -> None:
+async def test_request_evaluation_uses_gemini_generate_content() -> None:
     candidate = ProfessorCandidate(
         name="Ada Lovelace",
         institution="Analytical University",
@@ -20,18 +20,26 @@ async def test_request_evaluation_uses_openai_chat_completions() -> None:
     response = httpx.Response(
         200,
         json={
-            "choices": [
+            "candidates": [
                 {
-                    "message": {
-                        "content": (
-                            '{"summary":"Relevant work","relevance_score":8,'
-                            '"rationale":"The topic aligns."}'
-                        )
+                    "content": {
+                        "parts": [
+                            {
+                                "text": (
+                                    '{"summary":"Relevant work","relevance_score":8,'
+                                    '"rationale":"The topic aligns."}'
+                                )
+                            }
+                        ]
                     }
                 }
             ]
         },
-        request=httpx.Request("POST", "https://api.openai.com/v1/chat/completions"),
+        request=httpx.Request(
+            "POST",
+            "https://generativelanguage.googleapis.com/v1beta/models/"
+            "gemini-2.5-flash:generateContent",
+        ),
     )
     client = MagicMock()
     client.__aenter__ = AsyncMock(return_value=client)
@@ -39,15 +47,16 @@ async def test_request_evaluation_uses_openai_chat_completions() -> None:
     client.post = AsyncMock(return_value=response)
 
     with (
-        patch("app.agents.paper_evaluator.OPENAI_API_KEY", "test-key"),
-        patch("app.agents.paper_evaluator.OPENAI_MODEL", "gpt-4o-mini"),
+        patch("app.agents.paper_evaluator.GEMINI_API_KEY", "test-key"),
+        patch("app.agents.paper_evaluator.GEMINI_MODEL", "gemini-2.5-flash"),
         patch("app.agents.paper_evaluator.httpx.AsyncClient", return_value=client),
     ):
         result = await _request_evaluation(candidate, "computer science", papers)
 
     assert result["relevance_score"] == 8
-    headers = client.post.await_args.kwargs["headers"]
+    request_url = client.post.await_args.args[0]
+    params = client.post.await_args.kwargs["params"]
     payload = client.post.await_args.kwargs["json"]
-    assert headers["Authorization"] == "Bearer test-key"
-    assert payload["model"] == "gpt-4o-mini"
-    assert payload["response_format"] == {"type": "json_object"}
+    assert request_url.endswith(":generateContent")
+    assert params == {"key": "test-key"}
+    assert payload["generationConfig"]["responseMimeType"] == "application/json"
